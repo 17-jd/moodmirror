@@ -12,6 +12,13 @@ import os
 import sys
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+# Cap TensorFlow/BLAS threads so DeepFace can't grab every core and starve the MLX
+# music generator in the parent process (a cause of local-audio stutter).
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "2")
+os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")
+os.environ.setdefault("MKL_NUM_THREADS", "2")
 _VALID = {"happy", "sad", "angry", "surprise", "fear", "disgust", "neutral"}
 
 

@@ -99,8 +99,11 @@ CFG_MUSICCOCA = 4.5  # stronger style adherence → the prompt's "spice" comes t
 # chunk starved the MLX generator → chronic underruns / "breaking". 20 frames ≈ 0.8s
 # is the sweet spot: efficient enough to stay ahead, still a snappy reaction.
 CHUNK_FRAMES = 20  # frames per streaming chunk; 25 frames = 1.0s, so 20 ≈ 0.8s audio
-BUFFER_TARGET_S = 2.0  # audio buffered ahead; the ring is FLUSHED on a style change
-BUFFER_MIN_S = 0.6  # if buffered audio drops below this, prioritise generation
+# Big cushion so a transient generator dip (thermal throttle, CPU spike, Bluetooth
+# hiccup) can NEVER cause an audible gap — the callback always has seconds queued.
+# Costs a bit of startup prefill + reaction latency, but playback stays glass-smooth.
+BUFFER_TARGET_S = 3.5  # audio buffered ahead
+BUFFER_MIN_S = 1.0  # if buffered audio drops below this, prioritise generation
 STYLE_SWAP_RAMP_S = 0.12  # tiny amplitude ramp when a new style's chunk first plays
 # Prefill the ring to BUFFER_TARGET_S BEFORE playback starts, so there's no
 # startup underrun "stutter" while the buffer fills from empty.

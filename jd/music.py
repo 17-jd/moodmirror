@@ -425,7 +425,11 @@ class MusicEngine:
                     logger.debug("generate failed: %s", exc)
                     self._running.wait(0.05)
                     continue
-                chunk = self._prepare_chunk(wav, ramp=is_new)
+                # Ramp the new chunk's volume up ONLY when we also flush (instant
+                # swap) — that needs the fade to avoid a click. For a smooth
+                # (flush=False) change the buffer keeps playing and MRT2's state
+                # continuity makes it seamless, so ramping would just dip the volume.
+                chunk = self._prepare_chunk(wav, ramp=(is_new and emb_flush))
                 if len(chunk) == 0:  # soxr priming emitted nothing yet → keep going
                     continue
                 if is_new and emb_flush:  # flush only for instant (gesture) changes;

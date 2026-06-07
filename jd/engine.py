@@ -153,6 +153,8 @@ class JDEngine:
         self._df_emotion: str = "neutral"  # latest DeepFace emotion (emotion thread)
         self._mood3: str = "normal"  # simplified 3-class mood (happy/sad/normal)
         self._mood3_applied: str = ""  # last 3-class mood whose music we set
+        self._mood3_pending: str = ""  # candidate mood awaiting debounce
+        self._mood3_pending_since: float = 0.0  # when the candidate first appeared
         self._df_happy: float = 0.0  # latest DeepFace happy probability
         self._situation: str = ""  # latest Gemini situational read (continuous loop)
         # User-adjustable cadence for the continuous Gemini director loop. Seeded
@@ -904,6 +906,7 @@ class JDEngine:
         """
         if config.LOCAL_DRIVER != "emotion":
             return
+        now = time.monotonic()
         with self._lock:
             if (
                 self._mode != "local"
@@ -912,6 +915,14 @@ class JDEngine:
                 or not self._latest.face_present  # ignore bogus emotion on no-face frames
                 or mood3 == self._mood3_applied
             ):
+                return
+            # Debounce: the new mood must PERSIST for MOOD_COMMIT_SECONDS before we
+            # change the music, so a flapping reading (sad↔normal) doesn't thrash it.
+            if mood3 != self._mood3_pending:
+                self._mood3_pending = mood3
+                self._mood3_pending_since = now
+                return
+            if now - self._mood3_pending_since < config.MOOD_COMMIT_SECONDS:
                 return
             self._mood3_applied = mood3
         style = config.EMOTION3_SOUND.get(mood3)
@@ -969,8 +980,9 @@ class JDEngine:
                 self._last_gesture_ts = time.monotonic()
             return
         # narrator.current_style is now the FIXED config.GESTURE_SOUND[gesture]
-        # prompt → a wholesale, clearly audible swap. Apply it immediately.
-        self._music.set_style(self._narrator.current_style)
+        # prompt. Crossfade it in (flush=False) so it stays glass-smooth — flushing
+        # the big buffer on every head movement would cause gaps/stutter.
+        self._music.set_style(self._narrator.current_style, flush=False)
         with self._lock:
             self._last_gesture = gesture
             self._last_gesture_ts = time.monotonic()

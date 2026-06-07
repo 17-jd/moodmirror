@@ -21,6 +21,9 @@ import sys
 os.environ.setdefault("GLOG_minloglevel", "2")  # quiet C++ glog (MediaPipe)
 os.environ.setdefault("GLOG_logtostderr", "0")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # belt-and-suspenders (no TF here)
+# Cap threads so MediaPipe can't hog all cores away from the MLX music generator.
+os.environ.setdefault("OMP_NUM_THREADS", "2")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "2")
 
 # Well-known FaceMesh landmark indices.
 _LEFT_EYE = (33, 133)  # outer, inner corner (subject's left)
