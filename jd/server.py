@@ -211,6 +211,35 @@ def create_app(engine: JDEngine) -> FastAPI:
             logger.exception("engine.set_mode() failed")
             return {"ok": False, "detail": str(exc)[:140]}
 
+    @app.post("/api/generate-song")
+    async def generate_song(request: Request) -> dict:
+        """Trigger a Suno song from an image, an event URL, and/or the face.
+
+        Accepts a JSON body with optional fields ``image_b64`` (a base64 string
+        with no data-URL prefix), ``url`` (string), and ``use_face`` (bool,
+        default True). Missing/empty fields are passed through as ``None`` (or
+        the default for ``use_face``). Whatever dict the engine returns is
+        relayed verbatim. Errors are reported in the body with a 200 so the
+        dashboard's fetch never throws.
+        """
+        try:
+            body: object = {}
+            try:
+                body = await request.json()
+            except Exception:  # noqa: BLE001 — no/invalid JSON → empty body
+                body = {}
+            if not isinstance(body, dict):
+                body = {}
+            image_b64 = body.get("image_b64") or None
+            url = body.get("url") or None
+            use_face = body.get("use_face", True)
+            return engine.generate_song(
+                image_b64=image_b64, url=url, use_face=use_face
+            )
+        except Exception as exc:  # noqa: BLE001 — surface, never raise to the UI
+            logger.exception("engine.generate_song() failed")
+            return {"ok": False, "detail": str(exc)[:140]}
+
     @app.post("/api/stop-song")
     def stop_song() -> dict:
         """Stop the currently playing song without ending the session.

@@ -261,13 +261,16 @@ class GeminiDirector:
             logger.debug("Gemini update failed (%s) — keeping current music.", reason)
             return ("", "")
 
-    def describe_for_song(self, frames: list[np.ndarray]) -> tuple[str, str]:
-        """Turn a webcam snapshot into a FULL-SONG brief for Suno → (style, lyrics).
+    def describe_for_song(
+        self, frames: list[np.ndarray], context_text: str = ""
+    ) -> tuple[str, str]:
+        """Turn a webcam snapshot AND/OR an uploaded image AND/OR scraped EVENT text
+        into a FULL-SONG brief for Suno → (style, lyrics).
 
         Unlike `direct`/`update` (which produce PURELY INSTRUMENTAL MRT2 styles),
-        this is for the Suno music model: VOCALS AND LYRICS ARE WANTED. Encodes
-        the snapshot frame(s) as JPEG, asks Gemini (high temperature for
-        creativity) for strict JSON {style, lyrics}, and returns (style, lyrics).
+        this is for the Suno music model: VOCALS AND LYRICS ARE WANTED. Any provided
+        images are encoded as JPEG; `context_text` (e.g. scraped event info or an
+        uploaded image's context) is woven into the prompt. Works text-only too.
 
         On ANY error (network/parse/empty) returns a safe default style with
         empty lyrics (Suno can still produce) and NEVER raises.
@@ -276,19 +279,35 @@ class GeminiDirector:
             import cv2
             from google.genai import types
 
-            prompt = (
-                "You are a songwriter looking at a snapshot of a person and their "
-                "surroundings. Capture this MOMENT as a short, FULLY-PRODUCED song "
-                "for the Suno music model. Read their mood, energy, setting, and "
-                "vibe. Output STRICT JSON, exactly:\n"
-                '  "style": a Suno style/genre description (comma-separated tags: '
-                "genre, mood, instrumentation, tempo, vocal type — VOCALS ARE "
-                "WELCOME, this is a full song, e.g. 'warm indie folk-pop, gentle "
-                "male vocals, acoustic guitar, 90bpm, hopeful')\n"
-                '  "lyrics": short song lyrics (a verse + a chorus, ~6-10 lines) '
-                "that reflect what you see and the person's apparent mood — "
-                "uplifting and personal."
-            )
+            ctx = (context_text or "").strip()[:1800]
+            if ctx:
+                prompt = (
+                    "You are a songwriter. Write a short, FULLY-PRODUCED song for the "
+                    "Suno music model that captures the EVENT / SUBJECT described below "
+                    "(and shown in any images). Read its mood, energy, theme and vibe.\n\n"
+                    f"=== EVENT / CONTEXT ===\n{ctx}\n=== END CONTEXT ===\n\n"
+                    "Output STRICT JSON, exactly:\n"
+                    '  "style": a Suno style/genre description (comma-separated tags: '
+                    "genre, mood, instrumentation, tempo, vocal type — VOCALS ARE "
+                    "WELCOME, e.g. 'anthemic festival pop, energetic mixed vocals, "
+                    "synths, four-on-the-floor, 124bpm, euphoric')\n"
+                    '  "lyrics": song lyrics (a verse + a chorus, ~6-12 lines) that '
+                    "celebrate/evoke this event or subject — vivid and singable."
+                )
+            else:
+                prompt = (
+                    "You are a songwriter looking at a snapshot of a person and their "
+                    "surroundings. Capture this MOMENT as a short, FULLY-PRODUCED song "
+                    "for the Suno music model. Read their mood, energy, setting, and "
+                    "vibe. Output STRICT JSON, exactly:\n"
+                    '  "style": a Suno style/genre description (comma-separated tags: '
+                    "genre, mood, instrumentation, tempo, vocal type — VOCALS ARE "
+                    "WELCOME, this is a full song, e.g. 'warm indie folk-pop, gentle "
+                    "male vocals, acoustic guitar, 90bpm, hopeful')\n"
+                    '  "lyrics": short song lyrics (a verse + a chorus, ~6-10 lines) '
+                    "that reflect what you see and the person's apparent mood — "
+                    "uplifting and personal."
+                )
 
             parts: list = [prompt]
             for fr in frames[:_MAX_FRAMES]:
@@ -299,8 +318,9 @@ class GeminiDirector:
                             data=buf.tobytes(), mime_type="image/jpeg"
                         )
                     )
-            if len(parts) == 1:
-                raise RuntimeError("no frames to encode")
+            # Need at least one input: an image OR the event/context text.
+            if len(parts) == 1 and not ctx:
+                raise RuntimeError("no image and no context to describe")
 
             resp = self._client.models.generate_content(
                 model=self._model,

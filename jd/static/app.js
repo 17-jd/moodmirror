@@ -14,6 +14,7 @@
   var SITUATION_FLASH_MS = 900;
   var FRESH_MS = 800;
   var SONG_FLASH_MS = 900;
+  var GENERATE_REENABLE_MS = 2000; // button shows "Generating…" briefly
   var AUDIO_HISTORY = 5; // polls to consider for "smooth vs climbing"
 
   // Map raw song_status -> friendly readout + whether a spinner/bar should run.
@@ -114,7 +115,14 @@
     sunoBridgeNote: document.getElementById("sunoBridgeNote"),
     nowPlaying: document.getElementById("nowPlaying"),
     nowPlayingText: document.getElementById("nowPlayingText"),
-    stopSongBtn: document.getElementById("stopSongBtn")
+    stopSongBtn: document.getElementById("stopSongBtn"),
+    songSource: document.getElementById("songSource"),
+    songImageInput: document.getElementById("songImageInput"),
+    songImagePreview: document.getElementById("songImagePreview"),
+    songUrlInput: document.getElementById("songUrlInput"),
+    songUseFace: document.getElementById("songUseFace"),
+    generateSongBtn: document.getElementById("generateSongBtn"),
+    songSourceHint: document.getElementById("songSourceHint")
   };
 
   // Map gesture chips by their data-gesture key for fast flashing.
@@ -153,7 +161,9 @@
     lastSongStatus: null,      // flash the panel when song_status changes
     songFlashTimer: null,
     lastReady: false,          // was the song "ready" on the previous poll
-    readyFlashTimer: null
+    readyFlashTimer: null,
+    generatingSong: false,     // guard double-click on Generate song
+    generateTimer: null        // re-enables the Generate button after a beat
   };
 
   // --- Formatting helpers ---
@@ -870,6 +880,112 @@
   }
 
   if (el.stopSongBtn) el.stopSongBtn.addEventListener("click", stopSong);
+
+  // --- Make a song from an image / event URL / face ---
+
+  // Show the chosen file's name (or a fallback) in the preview slot.
+  if (el.songImageInput && el.songImagePreview) {
+    el.songImageInput.addEventListener("change", function () {
+      var f = this.files && this.files[0];
+      if (f) {
+        el.songImagePreview.textContent = f.name;
+        el.songImagePreview.classList.add("has-file");
+      } else {
+        el.songImagePreview.textContent = "no image chosen";
+        el.songImagePreview.classList.remove("has-file");
+      }
+    });
+  }
+
+  function setSongHint(msg, warn) {
+    if (!el.songSourceHint) return;
+    el.songSourceHint.textContent = msg;
+    el.songSourceHint.classList.toggle("warn", !!warn);
+  }
+
+  // Read the selected file as raw base64 (data-url prefix stripped). Resolves
+  // to null when no file is chosen, rejects only on a genuine read error.
+  function readImageBase64() {
+    return new Promise(function (resolve, reject) {
+      var f = el.songImageInput && el.songImageInput.files && el.songImageInput.files[0];
+      if (!f) {
+        resolve(null);
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function () {
+        var result = reader.result || "";
+        // result looks like "data:image/png;base64,XXXX" — strip the prefix.
+        var comma = String(result).indexOf(",");
+        resolve(comma >= 0 ? String(result).slice(comma + 1) : String(result));
+      };
+      reader.onerror = function () { reject(reader.error || new Error("file read failed")); };
+      reader.readAsDataURL(f);
+    });
+  }
+
+  function postGenerateSong(body) {
+    return fetch("/api/generate-song", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    })
+      .then(function (r) { return r.ok ? r.json() : null; });
+  }
+
+  function generateSong() {
+    if (state.generatingSong) return;
+
+    var url = el.songUrlInput ? el.songUrlInput.value.trim() : "";
+    var useFace = !!(el.songUseFace && el.songUseFace.checked);
+
+    state.generatingSong = true;
+    if (el.generateSongBtn) {
+      el.generateSongBtn.disabled = true;
+      el.generateSongBtn.textContent = "Generating…";
+    }
+
+    var done = function () {
+      if (state.generateTimer) clearTimeout(state.generateTimer);
+      state.generateTimer = setTimeout(function () {
+        state.generatingSong = false;
+        if (el.generateSongBtn) {
+          el.generateSongBtn.disabled = false;
+          el.generateSongBtn.innerHTML = "&#127925; Generate song";
+        }
+      }, GENERATE_REENABLE_MS);
+    };
+
+    readImageBase64()
+      .then(function (imageB64) {
+        // Need at least one source.
+        if (!imageB64 && !url && !useFace) {
+          setSongHint("Pick an image, paste a URL, or enable your face.", true);
+          // Re-enable immediately — nothing was sent.
+          state.generatingSong = false;
+          if (el.generateSongBtn) {
+            el.generateSongBtn.disabled = false;
+            el.generateSongBtn.innerHTML = "&#127925; Generate song";
+          }
+          return null;
+        }
+        setSongHint("Add at least one source — an image, a URL, or your face.", false);
+        return postGenerateSong({
+          image_b64: imageB64,
+          url: url || null,
+          use_face: useFace
+        }).then(function () { done(); });
+      })
+      .catch(function () {
+        // File read or network error — recover the button, the Suno panel
+        // (driven by /api/state polling) still reflects the real truth.
+        setSongHint("Couldn't start that — try again.", true);
+        done();
+      });
+  }
+
+  if (el.generateSongBtn) el.generateSongBtn.addEventListener("click", generateSong);
 
   // --- Polling loops (rescheduled in finally so errors never stop them) ---
   function pollState() {

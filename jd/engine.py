@@ -175,6 +175,9 @@ class JDEngine:
         self._song_status: str = ""
         self._song_thread: threading.Thread | None = None
         self._song_inflight = threading.Event()  # guard: only one song at a time
+        # Pending Suno song source: uploaded image / scraped event URL / face.
+        # None → the default (webcam face) song. Set by generate_song().
+        self._song_source: dict | None = None
 
         # Narration feed ring buffer: (seq, NarrationEvent) tuples.
         self._feed: deque[tuple[int, NarrationEvent]] = deque(maxlen=config.FEED_MAXLEN)
@@ -385,6 +388,60 @@ class JDEngine:
         self._song_thread = t
         t.start()
 
+    def generate_song(
+        self, image_b64: str | None = None, url: str | None = None, use_face: bool = True
+    ) -> dict:
+        """Make a Suno song from an uploaded image and/or an event URL and/or the face.
+
+        Decodes the base64 image, scrapes the URL (Gemini-readable text + an image),
+        stores them as the pending song source, switches to Suno mode, and kicks a
+        generation. Returns {"ok": True} or {"ok": False, "detail": ...}.
+        """
+        if self._suno is None:
+            return {"ok": False, "detail": "no Suno API key"}
+        extra_images: list[np.ndarray] = []
+        context_text = ""
+        try:
+            if image_b64:
+                import base64
+                import cv2
+
+                raw = base64.b64decode(image_b64, validate=False)
+                arr = np.frombuffer(raw, dtype=np.uint8)
+                img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                if img is not None:
+                    extra_images.append(img)
+            if url and url.strip():
+                from .scrape import scrape_url
+
+                context_text, og_img = scrape_url(url.strip())
+                if og_img is not None:
+                    extra_images.append(og_img)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("generate_song source prep failed: %s", exc)
+
+        if not extra_images and not context_text and not use_face:
+            return {"ok": False, "detail": "no source: add an image, a URL, or your face"}
+
+        with self._lock:
+            self._song_source = {
+                "images": extra_images,
+                "context_text": context_text,
+                "use_face": bool(use_face),
+            }
+            self._mode = "suno"
+        self._start_song()
+        srcs = []
+        if extra_images:
+            srcs.append("image")
+        if context_text:
+            srcs.append("event URL")
+        if use_face:
+            srcs.append("your face")
+        self._emit(NarrationEvent(ts=time.time(), kind="gemini",
+                                  text="Making a song from: " + ", ".join(srcs) + "…"))
+        return {"ok": True, "sources": srcs}
+
     def stop_song(self) -> None:
         """Stop the current Suno song (if any) and clear the song status."""
         self._music.skip_external()
@@ -419,18 +476,24 @@ class JDEngine:
 
             self._set_song_status("describing")
 
-            # Grab the latest webcam frame (thread-safe copy).
+            # Consume the pending song source (uploaded image / scraped URL / face).
+            # None → default behaviour: a song from the webcam face.
             with self._lock:
-                frame = (
-                    None if self._latest_frame is None else self._latest_frame.copy()
-                )
-            if frame is None:
-                self._set_song_status("error: no camera frame")
+                source = self._song_source
+                self._song_source = None
+                use_face = True if source is None else source.get("use_face", True)
+                context_text = "" if source is None else source.get("context_text", "")
+                frames = [] if source is None else list(source.get("images", []))
+                if use_face and self._latest_frame is not None:
+                    frames.append(self._latest_frame.copy())
+
+            if not frames and not context_text:
+                self._set_song_status("error: no image, URL, or camera frame")
                 return
 
             # Gemini song brief (NOT under the lock); director may be None.
             if self._director is not None:
-                style, lyrics = self._director.describe_for_song([frame])
+                style, lyrics = self._director.describe_for_song(frames, context_text)
             else:
                 style, lyrics = (
                     "warm uplifting indie pop, gentle vocals, acoustic, 90bpm",

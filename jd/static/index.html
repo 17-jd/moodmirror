@@ -82,6 +82,42 @@
         <span class="suno-now-text" id="nowPlayingText">&#9654; Now playing</span>
         <button type="button" class="stop-song-btn" id="stopSongBtn">&#9209; Stop</button>
       </div>
+
+      <!-- ===== Make a song from an image / event URL / your face ===== -->
+      <div class="song-source" id="songSource">
+        <div class="song-source-head">
+          <span class="song-source-title">&#127926; Make a song from&hellip;</span>
+        </div>
+        <div class="song-source-row">
+          <label class="song-file-btn" for="songImageInput">
+            <span aria-hidden="true">&#128247;</span> Choose image
+          </label>
+          <input type="file" id="songImageInput" accept="image/*" class="song-file-input" />
+          <span class="song-file-preview" id="songImagePreview">no image chosen</span>
+        </div>
+        <div class="song-source-row">
+          <input
+            type="text"
+            id="songUrlInput"
+            class="song-url-input"
+            placeholder="Paste an event URL (poster, page, listing)&hellip;"
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+        <div class="song-source-row song-source-foot">
+          <label class="song-face-check">
+            <input type="checkbox" id="songUseFace" checked />
+            <span>Use my face</span>
+          </label>
+          <button type="button" class="generate-song-btn" id="generateSongBtn">
+            &#127925; Generate song
+          </button>
+        </div>
+        <p class="song-source-hint" id="songSourceHint">
+          Add at least one source &mdash; an image, a URL, or your face.
+        </p>
+      </div>
     </div>
 
     <!-- ===== Two-column body ===== -->
