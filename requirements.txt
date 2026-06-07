@@ -1,0 +1,20 @@
+# JD runs INSIDE the shared magenta-rt venv, which already provides
+# magenta-rt[mlx] (the local MRT2 music model). magenta-rt is installed
+# separately there (it is not pip-installable the normal way in this setup),
+# so it is intentionally NOT listed below.
+#
+# These are the runtime dependencies JD imports directly:
+fastapi              # dashboard web app + routing
+uvicorn              # ASGI server for the dashboard
+opencv-python        # webcam capture + preview + Haar face/smile/motion
+numpy                # frame + audio buffers
+scipy                # resample_poly for matching the device sample rate
+soundfile            # archive generated audio segments to disk
+sounddevice          # real-time audio output (loop player callback)
+deepface             # out-of-process 7-class emotion classifier
+tf-keras             # Keras backend DeepFace needs
+tensorflow           # DeepFace inference backend (subprocess only)
+
+# dev/test
+pytest               # headless test runner
+httpx                # FastAPI TestClient HTTP backend

@@ -1,0 +1,19 @@
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+# Runtime data / audio
+data/
+*.wav
+*.mp3
+*.m4a
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS / logs
+.DS_Store
+*.log

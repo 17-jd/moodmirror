@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MoodMirror</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="app">
+    <!-- ===== Header strip ===== -->
+    <header class="header">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">MM</span>
+        <div class="brand-text">
+          <span class="brand-name">MoodMirror</span>
+          <span class="tagline">webcam mood &rarr; live music</span>
+        </div>
+      </div>
+
+      <!-- ===== Mode switcher (Local vs Suno) ===== -->
+      <div class="mode-switch hidden" id="modeSwitch" role="group" aria-label="music engine mode">
+        <button type="button" class="mode-btn active" id="modeLocalBtn" aria-pressed="true">
+          <span class="mode-ico" aria-hidden="true">&#127899;</span>
+          <span class="mode-text">Local &mdash; <span id="modeLocalName">Magenta RT2</span></span>
+        </button>
+        <button type="button" class="mode-btn" id="modeSunoBtn" aria-pressed="false">
+          <span class="mode-ico" aria-hidden="true">&#127908;</span>
+          <span class="mode-text">Suno &mdash; full song</span>
+          <span class="mode-nokey" id="modeSunoNoKey" hidden>no Suno key</span>
+        </button>
+      </div>
+
+      <div class="music-readout" id="musicReadout" role="status" aria-label="music status">
+        <span class="music-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="music-meta">
+          <span class="music-label">NOW PLAYING</span>
+          <span class="music-style" id="musicStyle">&mdash;</span>
+        </span>
+        <span class="music-status" id="musicStatus">silent &mdash; press Start</span>
+      </div>
+
+      <div class="sound-mode" id="soundMode" aria-label="active sound driver">
+        <span class="sound-mode-chip" id="soundModeChip">
+          <span class="sound-mode-source" id="soundModeSource">IDLE</span>
+          <span class="sound-mode-label" id="soundModeLabel">&mdash;</span>
+        </span>
+        <span class="sound-mode-style mono" id="soundModeStyle">&mdash;</span>
+      </div>
+
+      <button type="button" class="reset-btn hidden" id="resetBtn" disabled>
+        <span aria-hidden="true">&#8634;</span> Start Again <span class="reset-sub">new person</span>
+      </button>
+    </header>
+
+    <!-- ===== Phase banner ===== -->
+    <div class="phase-banner phase-idle" id="phaseBanner" role="status" aria-live="polite">
+      <span class="phase-icon" id="phaseIcon" aria-hidden="true">&#9679;</span>
+      <span class="phase-text" id="phaseText">Idle</span>
+      <span class="phase-detail mono" id="phaseDetail"></span>
+    </div>
+
+    <!-- ===== Live situation readout (moment-to-moment) ===== -->
+    <div class="situation-now empty" id="situationNow" role="status" aria-live="polite">
+      <span class="situation-eye" aria-hidden="true">&#128065;</span>
+      <span class="situation-tag">NOW</span>
+      <span class="situation-text" id="situationNowText">reading the room&hellip;</span>
+    </div>
+
+    <!-- ===== Suno progress panel (mode == suno) ===== -->
+    <div class="suno-panel hidden" id="sunoPanel" role="status" aria-live="polite">
+      <div class="suno-head">
+        <span class="suno-tag">&#127908; SUNO</span>
+        <span class="suno-status" id="sunoStatus">Idle</span>
+      </div>
+      <div class="suno-bar" id="sunoBar" aria-hidden="true"><i></i></div>
+      <div class="suno-now hidden" id="nowPlaying">
+        <span class="suno-now-text" id="nowPlayingText">&#9654; Now playing</span>
+        <button type="button" class="stop-song-btn" id="stopSongBtn">&#9209; Stop</button>
+      </div>
+    </div>
+
+    <!-- ===== Two-column body ===== -->
+    <main class="layout">
+      <!-- LEFT: live webcam + readouts -->
+      <section class="col col-left" aria-label="live camera and signals">
+        <div class="panel cam-panel">
+          <div class="cam-wrap">
+            <img id="video" class="cam" src="/video" alt="live webcam preview" />
+            <div class="cam-vignette" aria-hidden="true"></div>
+            <div class="cam-overlay" id="camOverlay">
+              <span class="overlay-pill" id="facePill">no face</span>
+            </div>
+
+            <!-- Start gate: shown while idle / not started -->
+            <div class="start-gate" id="startGate">
+              <div class="start-gate-inner">
+                <span class="start-gate-eyebrow">&#9209; MUSIC IS OFF</span>
+                <span class="start-gate-title">Frame yourself, then press&nbsp;Start</span>
+                <span class="start-gate-sub">Nothing plays until you start the session.</span>
+                <button type="button" class="start-btn" id="startBtn">&#9654;&nbsp; Start</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="cam-strip">
+            <div class="emotion-row">
+              <span class="emotion-dot" id="emotionDot" aria-hidden="true"></span>
+              <span class="emotion-label" id="emotionLabel">&mdash;</span>
+              <span class="motion-tag" id="motionTag">STILL</span>
+            </div>
+            <div class="mood-meter" role="img" aria-label="mood meter">
+              <div class="mood-meter-fill" id="smileFill"></div>
+            </div>
+            <div class="mood-meter-caption mono" id="smileCaption">mood 0%</div>
+          </div>
+        </div>
+
+        <!-- Gesture / head-pose readout -->
+        <div class="panel gesture-box">
+          <div class="gesture-head">
+            <span class="section-tag">GESTURE &amp; POSE</span>
+          </div>
+          <div class="gesture-pose mono" id="gesturePose">
+            <span class="gesture-kv"><i>yaw</i><b id="poseYaw">0&deg;</b></span>
+            <span class="gesture-kv"><i>pitch</i><b id="posePitch">0&deg;</b></span>
+            <span class="gesture-kv"><i>roll</i><b id="poseRoll">0&deg;</b></span>
+            <span class="gesture-kv"><i>gaze</i><b id="poseGaze">0</b></span>
+          </div>
+          <div class="gesture-chips" id="gestureChips">
+            <span class="gesture-chip" data-gesture="shake">shake</span>
+            <span class="gesture-chip" data-gesture="nod">nod</span>
+            <span class="gesture-chip" data-gesture="tilt">tilt</span>
+            <span class="gesture-chip" data-gesture="rotate">rotate</span>
+            <span class="gesture-chip" data-gesture="eye-roll">eye-roll</span>
+            <span class="gesture-chip" data-gesture="eyes_closed">eyes_closed</span>
+          </div>
+        </div>
+
+        <!-- Meters -->
+        <div class="panel meters" aria-label="performance meters">
+          <div class="meter-block">
+            <span class="meter-title">FPS</span>
+            <div class="meter-vals mono">
+              <span class="meter-kv"><b id="fpsCapture">0</b><i>cap</i></span>
+              <span class="meter-kv"><b id="fpsDetect">0</b><i>det</i></span>
+              <span class="meter-kv"><b id="fpsEmotion">0</b><i>emo</i></span>
+              <span class="meter-kv"><b id="fpsGesture">0</b><i>ges</i></span>
+            </div>
+          </div>
+          <div class="meter-block meter-latency">
+            <span class="meter-title">LATENCY</span>
+            <div class="meter-vals">
+              <span class="latency-headline" id="latencyHeadline">Music reacts in &mdash;</span>
+              <span class="latency-sub mono" id="latencySub">measuring&hellip;</span>
+              <span class="audio-health mono" id="audioHealth">audio: &mdash;</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: directive + narration feed -->
+      <section class="col col-right" aria-label="vibe and narration">
+        <!-- Gemini directive panel -->
+        <div class="panel directive" id="directive">
+          <div class="directive-head">
+            <span class="directive-title">THE VIBE<span class="directive-sub">the session anchor</span></span>
+            <span class="gemini-live" id="geminiLive" hidden>
+              <span class="gemini-live-dot" aria-hidden="true"></span>Gemini &bull; live <span class="gemini-live-spin" aria-hidden="true">&#10227;</span> every 3s
+            </span>
+            <span class="directive-source" id="directiveSource">&mdash;</span>
+          </div>
+          <div class="gemini-interval">
+            <label class="gemini-interval-label" for="geminiIntervalSlider">Gemini reads every</label>
+            <input
+              type="range"
+              id="geminiIntervalSlider"
+              class="gemini-interval-slider"
+              min="1" max="15" step="1" value="3"
+              aria-describedby="geminiIntervalValue"
+            />
+            <span class="gemini-interval-value mono" id="geminiIntervalValue" aria-live="off">3s</span>
+          </div>
+          <p class="directive-philosophy" id="directivePhilosophy">Waiting for the opening read&hellip;</p>
+          <p class="directive-observation" id="directiveObservation"></p>
+          <p class="directive-style mono" id="directiveStyle"></p>
+        </div>
+
+        <div class="panel feed-panel">
+          <div class="feed-head">
+            <h2>Narration</h2>
+            <span class="feed-engines mono" id="feedEngines">&mdash;</span>
+          </div>
+          <div class="feed" id="feed" aria-live="polite" tabindex="0" role="log"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
