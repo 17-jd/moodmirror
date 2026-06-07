@@ -23,9 +23,11 @@ logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-# Preview cadence for the MJPEG stream (~30 fps). The capture thread refreshes
-# the underlying frame independently; this only paces how often we re-emit it.
-_FRAME_INTERVAL_S = 0.03
+# Preview cadence for the MJPEG stream (~10 fps). Kept low on purpose: JPEG-encoding
+# the preview competes for CPU with the MLX music generator (same process), so a
+# 10fps thumbnail keeps the local audio smooth. The capture thread refreshes the
+# underlying frame independently; this only paces how often we re-emit it.
+_FRAME_INTERVAL_S = 0.1
 
 
 def create_app(engine: JDEngine) -> FastAPI:

@@ -687,14 +687,24 @@ class JDEngine:
         return {"seq": max_seq, "events": events}
 
     def latest_frame_jpeg(self) -> bytes | None:
-        """JPEG-encode the most recent webcam frame (thread-safe copy)."""
+        """JPEG-encode the most recent webcam frame (thread-safe copy).
+
+        Downscaled + moderate quality: the dashboard preview doesn't need full res,
+        and a smaller encode keeps CPU away from the MLX music generator (which runs
+        as a thread in THIS process and would otherwise stutter under preview load).
+        """
         import cv2  # local import: keep OpenCV out of module import time
 
         with self._lock:
             frame = None if self._latest_frame is None else self._latest_frame.copy()
         if frame is None:
             return None
-        ok, buf = cv2.imencode(".jpg", frame)
+        h, w = frame.shape[:2]
+        target_w = 480  # preview width; downscale wide webcam frames
+        if w > target_w:
+            frame = cv2.resize(frame, (target_w, int(h * target_w / w)),
+                               interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 60])
         return buf.tobytes() if ok else None
 
     # -- observe → direct flow ----------------------------------------------

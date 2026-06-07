@@ -118,7 +118,7 @@ SAVE_SESSION_AUDIO = False
 OUTPUT_NATIVE_48K = True
 
 # --- Vision (decoupled threads: capture fast, detect/emotion slower) --------
-CAPTURE_INTERVAL_S = 0.04  # ~25fps (was 0.0 = CPU-burning busy loop that starved MLX)
+CAPTURE_INTERVAL_S = 0.066  # ~15fps capture — enough for detection, less CPU vs MLX
 DETECT_INTERVAL_S = 0.2  # Haar face + motion (~5 fps)
 EMOTION_INTERVAL_S = 0.9  # DeepFace 7-class emotion (~1.1 fps; throttled to protect MLX)
 SMILE_THRESHOLD = 0.35
