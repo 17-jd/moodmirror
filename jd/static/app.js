@@ -39,6 +39,13 @@
     neutral: "#94a3b8"
   };
 
+  // Simplified 3-class mood -> headline color (the prominent emotion display).
+  var MOOD3_COLORS = {
+    happy: "#36d399",
+    sad: "#5b8def",
+    normal: "#94a3b8"
+  };
+
   var FEED_KINDS = { change: 1, hold: 1, observe: 1, gemini: 1, gesture: 1 };
 
   var PHASES = {
@@ -95,6 +102,7 @@
     feedEngines: document.getElementById("feedEngines"),
     geminiIntervalSlider: document.getElementById("geminiIntervalSlider"),
     geminiIntervalValue: document.getElementById("geminiIntervalValue"),
+    geminiModelSelect: document.getElementById("geminiModelSelect"),
     modeSwitch: document.getElementById("modeSwitch"),
     modeLocalBtn: document.getElementById("modeLocalBtn"),
     modeSunoBtn: document.getElementById("modeSunoBtn"),
@@ -134,6 +142,8 @@
     situationFlashTimer: null,
     intervalDragging: false,   // true while the user is dragging the slider
     intervalInitialized: false, // seed the slider from state exactly once
+    modelListKey: null,        // signature of the last-rendered <option> list
+    modelPostInFlight: false,  // guard double POST of gemini-model
     mode: null,                // last-rendered mode ("local" | "suno")
     pendingMode: null,         // optimistic mode while a POST is in flight
     switchingMode: false,      // guard double-click on mode buttons
@@ -245,10 +255,13 @@
       el.facePill.className = "overlay-pill absent";
     }
 
-    // Emotion dot + label
-    if (s.face_present && s.emotion) {
-      el.emotionLabel.textContent = s.emotion;
-      var c = EMOTION_COLORS[s.emotion] || EMOTION_COLORS.neutral;
+    // Emotion dot + label — headline is the simplified 3-class mood3.
+    // mood3 is one of happy/sad/normal; fall back to the raw 7-class emotion.
+    var mood3 = (typeof s.mood3 === "string") ? s.mood3.trim() : "";
+    var headline = mood3 || (typeof s.emotion === "string" ? s.emotion : "");
+    if (s.face_present && headline) {
+      el.emotionLabel.textContent = headline;
+      var c = MOOD3_COLORS[headline] || EMOTION_COLORS[headline] || EMOTION_COLORS.neutral;
       el.emotionDot.style.background = c;
       el.emotionDot.style.color = c; // drives the glow (currentColor)
     } else {
@@ -473,6 +486,102 @@
     });
   }
 
+  // --- Gemini model select ---
+  // True while the user has the dropdown focused/open, so polling never
+  // overwrites their selection mid-interaction.
+  function modelSelectBusy() {
+    return el.geminiModelSelect &&
+      document.activeElement === el.geminiModelSelect;
+  }
+
+  // Build the option list from the available models, always including the
+  // currently-selected model even if it's not in the fetched list.
+  function buildModelOptions(models, current) {
+    var list = [];
+    var seen = {};
+    for (var i = 0; i < models.length; i++) {
+      var id = models[i];
+      if (typeof id === "string" && id && !seen[id]) {
+        seen[id] = 1;
+        list.push(id);
+      }
+    }
+    if (current && !seen[current]) list.unshift(current);
+    return list;
+  }
+
+  function renderGeminiModel(s) {
+    var sel = el.geminiModelSelect;
+    if (!sel) return;
+
+    var models = Array.isArray(s.gemini_models) ? s.gemini_models : [];
+    var current = (typeof s.gemini_model === "string") ? s.gemini_model : "";
+
+    // Empty list (briefly, at startup): show a single disabled placeholder.
+    if (!models.length && !current) {
+      if (state.modelListKey !== "__loading__") {
+        sel.innerHTML = "";
+        var opt = document.createElement("option");
+        opt.value = "";
+        opt.disabled = true;
+        opt.selected = true;
+        opt.textContent = "loading models…";
+        sel.appendChild(opt);
+        sel.disabled = true;
+        state.modelListKey = "__loading__";
+      }
+      return;
+    }
+
+    var list = buildModelOptions(models, current);
+    var key = list.join("");
+
+    // Only rebuild the <option> list when the set of models actually changes —
+    // rebuilding every 200ms would break an open dropdown.
+    if (key !== state.modelListKey) {
+      sel.innerHTML = "";
+      for (var i = 0; i < list.length; i++) {
+        var o = document.createElement("option");
+        o.value = list[i];
+        o.textContent = list[i];
+        sel.appendChild(o);
+      }
+      sel.disabled = false;
+      state.modelListKey = key;
+    }
+
+    // Mirror the active model — but don't fight the user while they're in it.
+    if (current && !modelSelectBusy() && sel.value !== current) {
+      sel.value = current;
+    }
+  }
+
+  function postGeminiModel(model) {
+    if (!model) return;
+    if (state.modelPostInFlight) return; // guard a double-fire
+    state.modelPostInFlight = true;
+    try {
+      fetch("/api/gemini-model", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: model })
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { /* swallow; state poll reflects truth */ })
+        .finally(function () { state.modelPostInFlight = false; });
+    } catch (e) {
+      state.modelPostInFlight = false; // never throw from a UI handler
+    }
+  }
+
+  if (el.geminiModelSelect) {
+    el.geminiModelSelect.addEventListener("change", function () {
+      var model = this.value;
+      if (model) postGeminiModel(model); // optimistic: keep the selection
+    });
+  }
+
   // --- Mode switcher (Local vs Suno) ---
   function renderMode(s) {
     if (!el.modeSwitch) return;
@@ -582,6 +691,7 @@
     renderMusic(s);
     renderMeters(s);
     renderGeminiInterval(s);
+    renderGeminiModel(s);
   }
 
   // --- Feed rendering (append-only) ---

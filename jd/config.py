@@ -202,6 +202,9 @@ GESTURE_SOUND: dict[str, str] = {
     "nod": "punchy driving electronic groove, energetic drums, upbeat, bouncy bass" + _NV,
     "tilt": "curious playful melody, quirky pizzicato plucks, whimsical, light swing" + _NV,
     "rotate": "distant muffled ambient, heavy reverb, washed-out pads, far away" + _NV,
+    # Head turned LEFT vs RIGHT → two clearly different textures (user: "left/right change music").
+    "turn_left": "dreamy mellow filtered synth, spacious reverb, drifting, downtempo" + _NV,
+    "turn_right": "bright energetic plucks, crisp arpeggio, forward motion, upbeat" + _NV,
     "eye_roll": "bright airy sparkle, shimmering high synths, breezy, light and fizzy" + _NV,
     "eyes_closed": "deep slow ambient drone, sub bass, dreamy, very low tempo, meditative" + _NV,
 }
@@ -221,3 +224,28 @@ EMOTION_SOUND: dict[str, str] = {
 
 # How long a one-shot gesture's sound holds before the steady mood/base resumes.
 GESTURE_HOLD_S = 6.0
+
+# --- Simplified 3-class emotion (user: "just normal, happy, sad") ----------
+# DeepFace gives 7 emotions; we bucket them into 3 for a clean, legible response.
+EMOTION_BUCKET: dict[str, str] = {
+    "happy": "happy",
+    "surprise": "normal",
+    "neutral": "normal",
+    "sad": "sad",
+    "angry": "sad",
+    "fear": "sad",
+    "disgust": "sad",
+}
+# Each 3-class mood → one fixed INSTRUMENTAL style for the LOCAL model.
+EMOTION3_SOUND: dict[str, str] = {
+    "happy": "bright upbeat instrumental, major key, plucky synths, marimba, lively, 100bpm" + _NV,
+    "sad": "gentle uplifting instrumental, warm piano, soft strings, hopeful, tender, 75bpm" + _NV,
+    "normal": "calm chill lo-fi, mellow rhodes, relaxed head-nod groove, easy, 80bpm" + _NV,
+}
+
+# What drives the LOCAL model's music:
+#  "emotion" = the 3-class face emotion (base mood) + left/right head turns (instant);
+#              continuous Gemini still narrates the live "NOW" read but does NOT set the
+#              style (so emotion + movement are clearly in control — the user's request).
+#  "gemini"  = the continuous Gemini director sets the style (previous behavior).
+LOCAL_DRIVER = "emotion"

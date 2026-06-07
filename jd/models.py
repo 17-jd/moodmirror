@@ -15,7 +15,11 @@ Emotion = Literal["happy", "sad", "angry", "surprise", "fear", "disgust", "neutr
 # re-enters observing while the stream keeps playing.
 Phase = Literal["idle", "observing", "directing", "streaming"]
 # Discrete micro-gestures that drive the music (each maps to a fixed sound).
-Gesture = Literal["shake", "nod", "tilt", "rotate", "eye_roll", "eyes_closed"]
+Gesture = Literal[
+    "shake", "nod", "tilt", "rotate", "turn_left", "turn_right", "eye_roll", "eyes_closed"
+]
+# Simplified 3-class mood (user request): just normal / happy / sad.
+Mood3 = Literal["happy", "sad", "normal"]
 
 
 @dataclass(frozen=True)

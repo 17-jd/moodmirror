@@ -157,6 +157,33 @@ def create_app(engine: JDEngine) -> FastAPI:
             logger.exception("engine.set_gemini_interval() failed")
             return {"ok": False, "detail": str(exc)[:140]}
 
+    @app.post("/api/gemini-model")
+    async def set_gemini_model(request: Request) -> dict:
+        """Live-switch the Gemini model used by all director calls.
+
+        Accepts the model as a JSON body ``{"model": "<name>"}`` OR a query param
+        ``?model=<name>`` (JSON is tried first, then the query). The engine stores
+        it and returns the stored model. Errors are reported in the body with a
+        200 so the dashboard's fetch never throws.
+        """
+        try:
+            model: object | None = None
+            try:
+                body = await request.json()
+                if isinstance(body, dict):
+                    model = body.get("model")
+            except Exception:  # noqa: BLE001 — no/invalid JSON → fall back to query
+                model = None
+            if model is None:
+                model = request.query_params.get("model")
+            if model is None:
+                raise ValueError("missing 'model'")
+            stored = engine.set_gemini_model(str(model))
+            return {"ok": True, "model": stored}
+        except Exception as exc:  # noqa: BLE001 — surface, never raise to the UI
+            logger.exception("engine.set_gemini_model() failed")
+            return {"ok": False, "detail": str(exc)[:140]}
+
     @app.post("/api/mode")
     async def set_mode(request: Request) -> dict:
         """Switch the engine's generation mode ("local" or "suno").

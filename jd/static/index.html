@@ -131,7 +131,8 @@
             <span class="gesture-chip" data-gesture="shake">shake</span>
             <span class="gesture-chip" data-gesture="nod">nod</span>
             <span class="gesture-chip" data-gesture="tilt">tilt</span>
-            <span class="gesture-chip" data-gesture="rotate">rotate</span>
+            <span class="gesture-chip" data-gesture="turn_left">turn &#9664; left</span>
+            <span class="gesture-chip" data-gesture="turn_right">turn &#9654; right</span>
             <span class="gesture-chip" data-gesture="eye-roll">eye-roll</span>
             <span class="gesture-chip" data-gesture="eyes_closed">eyes_closed</span>
           </div>
@@ -170,16 +171,24 @@
             </span>
             <span class="directive-source" id="directiveSource">&mdash;</span>
           </div>
-          <div class="gemini-interval">
-            <label class="gemini-interval-label" for="geminiIntervalSlider">Gemini reads every</label>
-            <input
-              type="range"
-              id="geminiIntervalSlider"
-              class="gemini-interval-slider"
-              min="1" max="15" step="1" value="3"
-              aria-describedby="geminiIntervalValue"
-            />
-            <span class="gemini-interval-value mono" id="geminiIntervalValue" aria-live="off">3s</span>
+          <div class="gemini-controls" role="group" aria-label="Gemini controls">
+            <div class="gemini-interval">
+              <label class="gemini-interval-label" for="geminiIntervalSlider">Gemini reads every</label>
+              <input
+                type="range"
+                id="geminiIntervalSlider"
+                class="gemini-interval-slider"
+                min="1" max="15" step="1" value="3"
+                aria-describedby="geminiIntervalValue"
+              />
+              <span class="gemini-interval-value mono" id="geminiIntervalValue" aria-live="off">3s</span>
+            </div>
+            <div class="gemini-model">
+              <label class="gemini-model-label" for="geminiModelSelect">Gemini model</label>
+              <select id="geminiModelSelect" class="gemini-model-select" aria-label="Gemini model">
+                <option value="" disabled selected>loading models…</option>
+              </select>
+            </div>
           </div>
           <p class="directive-philosophy" id="directivePhilosophy">Waiting for the opening read&hellip;</p>
           <p class="directive-observation" id="directiveObservation"></p>

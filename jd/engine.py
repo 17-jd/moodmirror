@@ -151,11 +151,20 @@ class JDEngine:
         self._sound_label: str = ""
         self._latest_frame: np.ndarray | None = None
         self._df_emotion: str = "neutral"  # latest DeepFace emotion (emotion thread)
+        self._mood3: str = "normal"  # simplified 3-class mood (happy/sad/normal)
+        self._mood3_applied: str = ""  # last 3-class mood whose music we set
         self._df_happy: float = 0.0  # latest DeepFace happy probability
         self._situation: str = ""  # latest Gemini situational read (continuous loop)
         # User-adjustable cadence for the continuous Gemini director loop. Seeded
         # from config; live-tunable from the dashboard via set_gemini_interval().
         self._gemini_interval: float = float(config.GEMINI_INTERVAL_S)
+
+        # Live-selectable Gemini model + cached vision-model list (fetched on
+        # start, off-thread). The director starts on the configured model.
+        self._gemini_model: str = config.GEMINI_MODEL
+        self._gemini_models: list[str] = []
+        if self._director is not None:
+            self._director.set_model(self._gemini_model)
 
         # Generation MODE: "local" (live MRT2 stream) vs "suno" (full vocal song).
         # In "suno" mode the local continuous-Gemini + emotion/gesture style nudges
@@ -213,6 +222,15 @@ class JDEngine:
             t = threading.Thread(target=target, name=name, daemon=True)
             t.start()
             self._threads.append(t)
+
+        # Fetch the vision-model dropdown list ONCE, off-thread (network call —
+        # must not block start). If there's no director we leave the list empty.
+        if self._director is not None:
+            mt = threading.Thread(
+                target=self._fetch_gemini_models, name="gemini-models", daemon=True
+            )
+            mt.start()
+            self._threads.append(mt)
 
         # Manual gating: phase stays "idle" and the music stays silent. Only with
         # AUTOSTART do we kick the opening observe→direct flow automatically.
@@ -288,6 +306,43 @@ class JDEngine:
         with self._lock:
             self._gemini_interval = clamped
         return clamped
+
+    def _fetch_gemini_models(self) -> None:
+        """Fetch the vision-model list ONCE (network) and cache it under the lock.
+
+        Runs on a short daemon thread from :meth:`start` so the network call
+        never blocks startup. Ensures the currently-selected model is present
+        in the list (inserted first if missing). Never raises.
+        """
+        if self._director is None:
+            return
+        try:
+            models = self._director.list_vision_models()  # NOT under the lock
+        except Exception:  # noqa: BLE001 — list_vision_models never raises, but be safe
+            logger.debug("vision-model fetch failed", exc_info=True)
+            return
+        with self._lock:
+            current = self._gemini_model
+            if current and current not in models:
+                models = [current, *models]
+            self._gemini_models = list(models)
+
+    def set_gemini_model(self, model: str) -> str:
+        """Switch the Gemini model used by all director calls (live).
+
+        Accepts any non-empty string (typically from the dashboard dropdown, but
+        not required to be in the fetched list so the user is never blocked). The
+        director's ``set_model`` is called OUTSIDE the lock. Returns the stored
+        model (unchanged if ``model`` is empty/falsy).
+        """
+        if model:
+            with self._lock:
+                self._gemini_model = model
+            director = self._director  # local ref; set_model is cheap + lock-free
+            if director is not None:
+                director.set_model(model)
+        with self._lock:
+            return self._gemini_model
 
     # -- generation mode (local stream vs Suno full song) -------------------
     def set_mode(self, mode: str) -> str:
@@ -447,8 +502,11 @@ class JDEngine:
             sound_label = self._sound_label
             situation = self._situation
             gemini_interval = self._gemini_interval
+            gemini_model = self._gemini_model
+            gemini_models = list(self._gemini_models)
             mode = self._mode
             song_status = self._song_status
+            mood3 = self._mood3
 
         observe_remaining = (
             round(max(0.0, deadline - time.monotonic()), 1)
@@ -481,6 +539,7 @@ class JDEngine:
             "observe_remaining_s": observe_remaining,
             "face_present": latest.face_present,
             "emotion": latest.emotion,
+            "mood3": mood3,
             "smile_score": round(latest.smile_score, 3),
             "smiling": latest.smiling,
             "moving": latest.moving,
@@ -495,6 +554,8 @@ class JDEngine:
             "directive": directive_dict,
             "situation": situation,
             "gemini_interval_s": round(gemini_interval, 1),
+            "gemini_model": gemini_model,
+            "gemini_models": gemini_models,
             "mode": mode,
             "local_model_name": config.LOCAL_MODEL_NAME,
             "suno_available": self._suno is not None,
@@ -756,10 +817,40 @@ class JDEngine:
                 if result is not None:
                     emo, happy = result
                     self._emo_meter.tick(last_ms=emotion_ms)
+                    mood3 = config.EMOTION_BUCKET.get(emo, "normal")
                     with self._lock:
                         self._df_emotion, self._df_happy = emo, happy
+                        self._mood3 = mood3
+                    self._maybe_apply_mood(mood3)
             if self._stop.wait(config.EMOTION_INTERVAL_S):
                 return
+
+    def _maybe_apply_mood(self, mood3: str) -> None:
+        """In LOCAL emotion-driven mode, set the music to the 3-class mood's style.
+
+        Smooth (flush=False) so it never stutters; only when the mood bucket
+        actually changes, while streaming local music and no Suno song is playing.
+        """
+        if config.LOCAL_DRIVER != "emotion":
+            return
+        with self._lock:
+            if (
+                self._mode != "local"
+                or self._phase != "streaming"
+                or self._music.playing_external
+                or mood3 == self._mood3_applied
+            ):
+                return
+            self._mood3_applied = mood3
+        style = config.EMOTION3_SOUND.get(mood3)
+        if style:
+            self._music.set_style(style, flush=False)  # smooth mood change
+            with self._lock:
+                self._sound_source = "emotion"
+                self._sound_label = mood3
+            self._emit(NarrationEvent(ts=time.time(), kind="change",
+                                      text=f"Mood looks {mood3} — matching the music.",
+                                      emotion=self._df_emotion, style=style))
 
     # -- gesture thread -----------------------------------------------------
     def _gesture_loop(self) -> None:
@@ -847,7 +938,7 @@ class JDEngine:
                 and event.kind == "change"
                 and event.style
             ):
-                self._music.set_style(event.style)
+                self._music.set_style(event.style, flush=False)  # smooth mood change
                 with self._lock:
                     self._sound_source = "emotion"
                     self._sound_label = event.emotion
@@ -906,12 +997,17 @@ class JDEngine:
                 if not style:
                     continue  # error / rate-limit / no change → keep current music
 
-                # Swap the music — NOT under the lock — then record the read.
-                self._music.set_style(style)
+                # Record the live "NOW" read either way (it drives the dashboard
+                # readout + narration). Only STEER THE MUSIC from Gemini when the
+                # local driver is "gemini"; in "emotion" mode the 3-class emotion +
+                # left/right turns own the music, so Gemini just narrates.
                 with self._lock:
                     self._situation = situation
-                    self._sound_source = "gemini"
-                    self._sound_label = situation or "live read"
+                if config.LOCAL_DRIVER == "gemini":
+                    self._music.set_style(style, flush=False)  # smooth crossfade
+                    with self._lock:
+                        self._sound_source = "gemini"
+                        self._sound_label = situation or "live read"
                 self._emit(
                     NarrationEvent(
                         ts=time.time(),

@@ -695,6 +695,53 @@ button:focus-visible { outline-offset: 3px; }
   background: linear-gradient(90deg, rgba(167, 139, 250, 0.55), rgba(122, 162, 255, 0.4));
 }
 
+/* ===== Gemini controls group (slider + model select) ===== */
+.gemini-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ===== Gemini model select ===== */
+.gemini-model {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(167, 139, 250, 0.08);
+  border: 1px solid rgba(167, 139, 250, 0.22);
+}
+.gemini-model-label {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--muted); white-space: nowrap;
+}
+.gemini-model-select {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 0.78rem; font-weight: 700;
+  color: var(--fg);
+  background: var(--card2);
+  border: 1px solid rgba(167, 139, 250, 0.3);
+  border-radius: 10px;
+  padding: 7px 10px;
+  cursor: pointer;
+  outline-offset: 3px;
+  transition: border-color .2s ease, box-shadow .2s ease, background .2s ease;
+}
+.gemini-model-select:hover:not(:disabled) {
+  border-color: rgba(167, 139, 250, 0.5);
+  background: var(--card3);
+}
+.gemini-model-select:focus-visible {
+  border-color: var(--violet);
+  box-shadow: 0 0 0 1px rgba(167, 139, 250, 0.5);
+}
+.gemini-model-select:disabled { opacity: 0.6; cursor: not-allowed; }
+.gemini-model-select option { background: var(--bg3); color: var(--fg); }
+.gemini-model-select option:disabled { color: var(--dim); }
+
 /* ===== Gemini "live" badge ===== */
 .gemini-live {
   display: inline-flex; align-items: center; gap: 6px;

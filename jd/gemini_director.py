@@ -96,6 +96,50 @@ class GeminiDirector:
         self._client = genai.Client(api_key=api_key)
         self._model = model
 
+    def set_model(self, model: str) -> None:
+        """Switch the model used by direct/update/describe_for_song (live)."""
+        self._model = model
+
+    def list_vision_models(self) -> list[str]:
+        """List vision-capable Gemini chat models (short names), SORTED + deduped.
+
+        Filters the live model catalogue to ``gemini*`` models that support
+        ``generateContent`` and are not specialty (tts/image/embedding/etc.).
+        NEVER raises — on ANY error returns a static fallback list.
+        """
+        fallback = [
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-pro",
+            "gemini-flash-latest",
+            "gemini-flash-lite-latest",
+        ]
+        _EXCLUDE = (
+            "tts", "image", "computer-use", "robotics",
+            "embedding", "aqa", "veo", "imagen",
+        )
+        try:
+            names: set[str] = set()
+            for m in self._client.models.list():
+                name = m.name.split("/")[-1]
+                actions = (
+                    getattr(m, "supported_actions", None)
+                    or getattr(m, "supported_generation_methods", None)
+                    or []
+                )
+                if not name.startswith("gemini"):
+                    continue
+                if "generateContent" not in actions:
+                    continue
+                if any(sub in name for sub in _EXCLUDE):
+                    continue
+                names.add(name)
+            return sorted(names) if names else fallback
+        except Exception as exc:  # noqa: BLE001 — listing must never raise
+            reason = str(exc).splitlines()[0][:80] if str(exc) else type(exc).__name__
+            logger.warning("Gemini model list failed (%s) — using fallback.", reason)
+            return fallback
+
     def direct(self, frames: list[np.ndarray]) -> GeminiDirective:
         """Watch the subject (frames) → opening music directive.
 

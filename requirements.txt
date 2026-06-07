@@ -18,3 +18,4 @@ tensorflow           # DeepFace inference backend (subprocess only)
 # dev/test
 pytest               # headless test runner
 httpx                # FastAPI TestClient HTTP backend
+soxr

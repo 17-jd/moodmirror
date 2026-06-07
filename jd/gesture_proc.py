@@ -3,8 +3,8 @@
 Keeps MediaPipe out of the main process (it aborts alongside MLX/TF). The worker
 is persistent — the FaceLandmarker loads once — and we round-trip a frame per
 request over pipes. This manager also turns the raw per-frame pose+gaze
-time-series into DISCRETE, debounced micro-gestures (shake/nod/tilt/rotate/
-eye_roll), since the worker emits only raw pose.
+time-series into DISCRETE, debounced micro-gestures (shake/nod/tilt/turn_left/
+turn_right/eye_roll), since the worker emits only raw pose.
 """
 
 from __future__ import annotations
@@ -53,6 +53,9 @@ class GestureWorker:
         # (None = currently open / re-armed), and whether we've already fired for it.
         self._eyes_closed_since: float | None = None
         self._eyes_closed_fired: bool = False
+        # Directional turn re-arm: a turn may fire again only after the head has
+        # returned toward center (|yaw| < ROTATE_YAW_DEG*0.5) since the last fire.
+        self._turn_armed: dict[str, bool] = {"turn_left": True, "turn_right": True}
 
     def start(self) -> bool:
         if not self.available:
@@ -144,8 +147,14 @@ class GestureWorker:
             fired.append("nod")
         if self._sustained(3, config.TILT_ROLL_DEG):
             fired.append("tilt")
-        if self._sustained(1, config.ROTATE_YAW_DEG):
-            fired.append("rotate")
+        # Directional head turn (yaw: + = RIGHT, - = LEFT). Re-arm runs every
+        # frame (independent of whether a turn is currently sustained) so the
+        # latch resets once the head returns toward center.
+        self._update_turn_rearm()
+        if self._sustained_dir(1, -config.ROTATE_YAW_DEG) and self._fire_turn("turn_left"):
+            fired.append("turn_left")
+        if self._sustained_dir(1, +config.ROTATE_YAW_DEG) and self._fire_turn("turn_right"):
+            fired.append("turn_right")
         if self._spike(4, config.EYEROLL_GAZE):
             fired.append("eye_roll")
         if self._eyes_closed(now, blink):
@@ -198,6 +207,42 @@ class GestureWorker:
             return False
         recent = list(self._hist)[-_SUSTAIN:]
         return all(abs(s[idx]) > thr_deg for s in recent)
+
+    def _sustained_dir(self, idx: int, thr_deg: float) -> bool:
+        """The last _SUSTAIN samples all pass a SIGNED threshold on the given axis.
+
+        thr_deg > 0 → all samples must be >= thr_deg (turned positive/RIGHT).
+        thr_deg < 0 → all samples must be <= thr_deg (turned negative/LEFT).
+        """
+        if len(self._hist) < _SUSTAIN:
+            return False
+        recent = list(self._hist)[-_SUSTAIN:]
+        if thr_deg >= 0:
+            return all(s[idx] >= thr_deg for s in recent)
+        return all(s[idx] <= thr_deg for s in recent)
+
+    def _update_turn_rearm(self) -> None:
+        """Re-arm directional turns once the head returns toward center.
+
+        Runs every frame: when |yaw| drops below ROTATE_YAW_DEG*0.5, both turn
+        latches re-arm so the next sustained turn can fire again.
+        """
+        rearm_thr = config.ROTATE_YAW_DEG * 0.5
+        cur_yaw = self._hist[-1][1] if self._hist else 0.0
+        if abs(cur_yaw) < rearm_thr:
+            self._turn_armed["turn_left"] = True
+            self._turn_armed["turn_right"] = True
+
+    def _fire_turn(self, gesture: str) -> bool:
+        """Consume the re-arm latch: fire once, then stay disarmed until re-armed.
+
+        A turn fires only when armed; firing disarms it. Combined with
+        _update_turn_rearm (re-arms at center), each turn fires once per movement.
+        """
+        if self._turn_armed.get(gesture, True):
+            self._turn_armed[gesture] = False
+            return True
+        return False
 
     def _spike(self, idx: int, thr: float) -> bool:
         """A quick excursion: current gaze high while the recent baseline was low."""

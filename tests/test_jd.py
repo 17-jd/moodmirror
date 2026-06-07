@@ -89,8 +89,11 @@ class TestModels:
 # config — the FIXED sound map sanity (gesture + emotion prompts)
 # ---------------------------------------------------------------------------
 class TestConfigSoundMap:
-    def test_gesture_sound_has_all_six_keys(self):
-        expected = {"shake", "nod", "tilt", "rotate", "eye_roll", "eyes_closed"}
+    def test_gesture_sound_has_all_keys(self):
+        expected = {
+            "shake", "nod", "tilt", "rotate",
+            "turn_left", "turn_right", "eye_roll", "eyes_closed",
+        }
         assert set(config.GESTURE_SOUND) == expected
         for key, value in config.GESTURE_SOUND.items():
             assert isinstance(value, str) and value.strip(), key

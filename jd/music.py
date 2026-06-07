@@ -47,6 +47,11 @@ from typing import Any, Callable
 import numpy as np
 from scipy.signal import resample_poly
 
+try:  # high-quality STATEFUL streaming resampler (no per-chunk edge artifacts)
+    import soxr
+except Exception:  # noqa: BLE001
+    soxr = None  # type: ignore[assignment]
+
 from . import config
 
 logger = logging.getLogger(__name__)
@@ -164,6 +169,12 @@ class MusicEngine:
         # The embedding slot the generator reads, plus the style it represents.
         self._embedding: Any = None
         self._embedding_style = ""
+        # Whether the pending/applied style should FLUSH the ring (instant, for
+        # gestures) or crossfade smoothly without flushing (continuous Gemini).
+        self._requested_flush = True
+        self._embedding_flush = True
+        # Stateful 48k→device-rate resampler (soxr); None = output at 48k natively.
+        self._resampler: Any = None
         # Latency tracking: monotonic stamp of a pending genuinely-new style.
         self._change_requested_at: float | None = None
         self._pending_latency_style = ""  # style whose first push we're timing
@@ -198,14 +209,22 @@ class MusicEngine:
         """Audio-callback underruns since start (0 = perfectly gapless playback)."""
         return self._ring.underruns if self._ring is not None else 0
 
-    def set_style(self, style: str) -> None:
-        """Request a new style; takes effect within ~one chunk (~0.5s)."""
+    def set_style(self, style: str, flush: bool = True) -> None:
+        """Request a new style; takes effect within ~one chunk (~0.5s).
+
+        ``flush=True`` (default, for instant GESTURE reactions) drops the queued
+        audio so the new style is heard immediately. ``flush=False`` (for the
+        continuous Gemini mood updates that arrive every few seconds) keeps the
+        buffer full and lets the new style crossfade in via the persistent MRT2
+        state — no flush means no periodic underrun/stutter.
+        """
         style = style.strip()
         if not style:
             return
         with self._style_lock:
             if style != self._requested_style:
                 self._requested_style = style
+                self._requested_flush = flush
                 self._change_requested_at = time.monotonic()
                 self._pending_latency_style = style
                 self._latency_armed = True
@@ -363,6 +382,7 @@ class MusicEngine:
                 if want == self._requested_style:
                     self._embedding = emb
                     self._embedding_style = want
+                    self._embedding_flush = self._requested_flush
 
     # -- generator thread (owns persistent state) ---------------------------
     def _gen_loop(self) -> None:
@@ -382,6 +402,7 @@ class MusicEngine:
                 with self._style_lock:
                     emb = self._embedding
                     emb_style = self._embedding_style
+                    emb_flush = self._embedding_flush
                 if emb is None:  # idle: nothing requested yet → stay silent
                     self._embed_wake.set()  # nudge embed thread if a style waits
                     self._running.wait(0.1)
@@ -405,8 +426,10 @@ class MusicEngine:
                     self._running.wait(0.05)
                     continue
                 chunk = self._prepare_chunk(wav, ramp=is_new)
-                if is_new:  # flush stale old-style audio so the new style is heard now
-                    self._ring.clear()
+                if len(chunk) == 0:  # soxr priming emitted nothing yet → keep going
+                    continue
+                if is_new and emb_flush:  # flush only for instant (gesture) changes;
+                    self._ring.clear()  # continuous Gemini updates crossfade (no stutter)
                 self._ring.push(chunk)
                 self._save_block(chunk)
                 gen_style = emb_style
@@ -438,12 +461,19 @@ class MusicEngine:
         except Exception:  # noqa: BLE001
             dev_native = _MRT_SR
 
-        # Prefer outputting at MRT2's native 48kHz: pushing raw model audio with NO
-        # per-chunk resampling avoids the resample_poly chunk-edge artifacts that
-        # cause an audible "breaking" wobble. CoreAudio converts 48k → device rate
-        # continuously and gaplessly. Fall back to the device rate (with per-chunk
-        # resampling) only if 48kHz output can't be opened.
-        self._out_sr = _MRT_SR if config.OUTPUT_NATIVE_48K else dev_native
+        # Output at the DEVICE'S NATIVE rate and resample 48k→device ourselves with
+        # a stateful soxr stream. Outputting 48k to a 44.1k device made CoreAudio do
+        # the SRC on the fly, which STUTTERED (verified: our pre-SRC audio was clean
+        # but playback glitched). Native-rate out + soxr = no CoreAudio SRC, and
+        # soxr's stateful stream joins chunks seamlessly (no per-chunk edge clicks).
+        if soxr is not None and dev_native != _MRT_SR:
+            self._out_sr = dev_native
+            self._resampler = soxr.ResampleStream(
+                _MRT_SR, dev_native, 2, dtype="float32", quality="HQ"
+            )
+        else:  # soxr missing (or device already 48k) → output 48k, let OS handle it
+            self._out_sr = _MRT_SR
+            self._resampler = None
         capacity = max(1, int(5.0 * self._out_sr))  # a few seconds of cushion
 
         def _open(rate: int) -> Any:
@@ -455,10 +485,11 @@ class MusicEngine:
         self._ring = _RingBuffer(capacity)
         try:
             self._stream = _open(self._out_sr)
-        except Exception as exc:  # noqa: BLE001 - 48k may be unsupported → fall back
-            logger.warning("48kHz output failed (%s); falling back to device rate %d Hz.",
-                           exc, dev_native)
-            self._out_sr = dev_native
+        except Exception as exc:  # noqa: BLE001 - native rate failed → try 48k raw
+            logger.warning("%dHz output failed (%s); falling back to 48kHz raw.",
+                           self._out_sr, exc)
+            self._out_sr = _MRT_SR
+            self._resampler = None
             self._ring = _RingBuffer(max(1, int(5.0 * self._out_sr)))
             self._stream = _open(self._out_sr)
         # When PREFILL_BEFORE_PLAY, the stream is OPENED (device ready) but NOT
@@ -484,8 +515,12 @@ class MusicEngine:
 
     def _prepare_chunk(self, wav: Any, ramp: bool) -> np.ndarray:
         seg = np.ascontiguousarray(wav.samples, dtype=np.float32)  # 48kHz (T, 2)
-        if self._out_sr != _MRT_SR:  # fallback path only: resample to device rate
+        if self._resampler is not None:  # stateful soxr stream → device rate, seamless
+            seg = np.ascontiguousarray(self._resampler.resample_chunk(seg), dtype=np.float32)
+        elif self._out_sr != _MRT_SR:  # fallback: stateless per-chunk resample
             seg = resample_poly(seg, self._out_sr, _MRT_SR, axis=0).astype(np.float32)
+        if len(seg) == 0:  # soxr may emit nothing while priming its filter
+            return seg
         if ramp:  # tiny amplitude ramp on the first chunk of a new style → no click
             n = min(len(seg), int(config.STYLE_SWAP_RAMP_S * self._out_sr))
             if n > 1:

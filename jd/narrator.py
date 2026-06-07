@@ -121,6 +121,8 @@ _GESTURE_TEXT: dict[str, str] = {
     "nod": "You're nodding — punchy, driving groove.",
     "tilt": "Head tilt — curious, playful melody.",
     "rotate": "You turned away — distant and washed-out.",
+    "turn_left": "You turned left — dreamy and drifting.",
+    "turn_right": "You turned right — bright and forward.",
     "eye_roll": "Eye-roll — bright and airy now.",
     "eyes_closed": "Eyes closed — taking it deep and slow.",
 }
