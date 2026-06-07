@@ -61,8 +61,12 @@ GEMINI_INTERVAL_S = 3.0  # snapshot → Gemini → update the music mood, every 
 # "local" = the live, instant MRT2 (Magenta RealTime) instrumental stream.
 # "suno"  = snapshot → Gemini describes it → Suno SDK produces a FULL produced
 #           song (with vocals) → auto-plays when ready (MRT2 mutes meanwhile).
-MODE_DEFAULT = "local"
+# Start in SUNO mode by default: on Start, a full produced song is generated and
+# the dashboard shows "Ready" + auto-plays it. A local instrumental stream plays as
+# a BRIDGE during the ~30-60s generation so there's never dead silence.
+MODE_DEFAULT = "suno"
 LOCAL_MODEL_NAME = "Magenta RT2"  # display name for the local streaming model
+SUNO_AUTOSTART = True  # in suno mode, auto-generate a song when the session begins
 
 # --- Suno (full-song mode) -------------------------------------------------
 SUNO_API_KEY = os.environ.get("SUNO_API_KEY")
@@ -86,9 +90,9 @@ SERVER_PORT = int(os.environ.get("JD_PORT", "8000"))
 # This replaces the old "generate a 3s block then loop" design (which caused 6s).
 MRT2_MODEL = os.environ.get("JD_MRT2_MODEL", "mrt2_small")
 SAMPLE_RATE = 48_000  # MRT2 native output rate (resampled to device rate at runtime)
-TEMPERATURE = 1.3
-TOP_K = 40
-CFG_MUSICCOCA = 3.0
+TEMPERATURE = 1.4  # a touch more variety/character
+TOP_K = 50
+CFG_MUSICCOCA = 4.5  # stronger style adherence → the prompt's "spice" comes through
 # Chunk size is a throughput knob: bigger chunks amortise per-call overhead, so the
 # generator sustains a higher realtime factor (measured: 25-frame ≈ 1.17x vs 10-frame
 # ≈ 1.08x). Under live CPU contention (MediaPipe + DeepFace subprocesses) the small
@@ -236,11 +240,12 @@ EMOTION_BUCKET: dict[str, str] = {
     "fear": "sad",
     "disgust": "sad",
 }
-# Each 3-class mood → one fixed INSTRUMENTAL style for the LOCAL model.
+# Each 3-class mood → one fixed, RICH instrumental style for the LOCAL model.
+# Spiced up with real instrumentation/genre detail so MRT2 has more to work with.
 EMOTION3_SOUND: dict[str, str] = {
-    "happy": "bright upbeat instrumental, major key, plucky synths, marimba, lively, 100bpm" + _NV,
-    "sad": "gentle uplifting instrumental, warm piano, soft strings, hopeful, tender, 75bpm" + _NV,
-    "normal": "calm chill lo-fi, mellow rhodes, relaxed head-nod groove, easy, 80bpm" + _NV,
+    "happy": "vibrant feel-good funk, bright marimba, wah guitar, punchy horns, claps, groovy bass, 108bpm" + _NV,
+    "sad": "tender cinematic uplift, warm grand piano, lush strings, soft glockenspiel, hopeful swell, 76bpm" + _NV,
+    "normal": "rich jazzy lo-fi, dusty rhodes, smooth chords, vinyl crackle, mellow boom-bap drums, 84bpm" + _NV,
 }
 
 # What drives the LOCAL model's music:

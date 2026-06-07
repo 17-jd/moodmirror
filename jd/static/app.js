@@ -110,6 +110,8 @@
     modeSunoNoKey: document.getElementById("modeSunoNoKey"),
     sunoPanel: document.getElementById("sunoPanel"),
     sunoStatus: document.getElementById("sunoStatus"),
+    sunoReady: document.getElementById("sunoReady"),
+    sunoBridgeNote: document.getElementById("sunoBridgeNote"),
     nowPlaying: document.getElementById("nowPlaying"),
     nowPlayingText: document.getElementById("nowPlayingText"),
     stopSongBtn: document.getElementById("stopSongBtn")
@@ -149,7 +151,9 @@
     switchingMode: false,      // guard double-click on mode buttons
     stoppingSong: false,       // guard double-click on Stop
     lastSongStatus: null,      // flash the panel when song_status changes
-    songFlashTimer: null
+    songFlashTimer: null,
+    lastReady: false,          // was the song "ready" on the previous poll
+    readyFlashTimer: null
   };
 
   // --- Formatting helpers ---
@@ -632,48 +636,68 @@
   // --- Suno progress panel ---
   function renderSuno(s) {
     if (!el.sunoPanel) return;
+    try {
+      var mode = state.pendingMode || (s.mode === "suno" ? "suno" : "local");
+      if (mode !== "suno") {
+        el.sunoPanel.classList.add("hidden");
+        return;
+      }
+      el.sunoPanel.classList.remove("hidden");
 
-    var mode = state.pendingMode || (s.mode === "suno" ? "suno" : "local");
-    if (mode !== "suno") {
-      el.sunoPanel.classList.add("hidden");
-      return;
+      var raw = (typeof s.song_status === "string") ? s.song_status : "";
+      var playing = !!s.playing_song;
+      var track = (typeof s.current_track === "string" && s.current_track) ? s.current_track : "";
+      var isError = raw.indexOf("error") === 0;
+      // "Ready" = the song is actually playing.
+      var ready = !isError && (raw === "playing" || playing);
+
+      var label, working;
+      if (isError) {
+        label = "⚠ " + raw;
+        working = false;
+      } else if (ready) {
+        label = "▶ Playing your song";
+        working = false;
+      } else {
+        var step = SONG_STEPS[raw] || { text: raw || "Idle", working: false };
+        label = step.text;
+        working = step.working;
+      }
+
+      el.sunoStatus.textContent = label;
+      el.sunoPanel.classList.toggle("error", isError);
+      el.sunoPanel.classList.toggle("working", working);
+
+      // ✓ READY badge — prominent green pill, pulses the moment it first appears.
+      if (el.sunoReady) {
+        el.sunoReady.classList.toggle("hidden", !ready);
+        if (ready && !state.lastReady) {
+          flash(el.sunoReady, "flash", SONG_FLASH_MS, "readyFlashTimer");
+        }
+      }
+
+      // Subtle "instrumental bridge" note while the real song is still generating.
+      if (el.sunoBridgeNote) {
+        var bridging = !isError && !ready && working;
+        el.sunoBridgeNote.classList.toggle("hidden", !bridging);
+      }
+
+      // Now-playing row + Stop button (only while a song is actually playing).
+      var showNow = ready;
+      el.nowPlaying.classList.toggle("hidden", !showNow);
+      if (showNow) {
+        el.nowPlayingText.textContent = "▶ Now playing: " + (track || "your song");
+      }
+
+      // Flash the whole panel when the pipeline step changes.
+      if (state.lastSongStatus !== null && raw !== state.lastSongStatus) {
+        flash(el.sunoPanel, "flash", SONG_FLASH_MS, "songFlashTimer");
+      }
+      state.lastSongStatus = raw;
+      state.lastReady = ready;
+    } catch (e) {
+      /* never throw from the render loop */
     }
-    el.sunoPanel.classList.remove("hidden");
-
-    var raw = (typeof s.song_status === "string") ? s.song_status : "";
-    var playing = !!s.playing_song;
-    var track = (typeof s.current_track === "string" && s.current_track) ? s.current_track : "";
-    var isError = raw.indexOf("error") === 0;
-
-    var label, working;
-    if (isError) {
-      label = "⚠ " + raw;
-      working = false;
-    } else if (playing) {
-      label = "▶ Playing your song";
-      working = false;
-    } else {
-      var step = SONG_STEPS[raw] || { text: raw || "Idle", working: false };
-      label = step.text;
-      working = step.working;
-    }
-
-    el.sunoStatus.textContent = label;
-    el.sunoPanel.classList.toggle("error", isError);
-    el.sunoPanel.classList.toggle("working", working);
-
-    // Now-playing row + Stop button.
-    var showNow = playing;
-    el.nowPlaying.classList.toggle("hidden", !showNow);
-    if (showNow) {
-      el.nowPlayingText.textContent = "▶ Now playing: " + (track || "your song");
-    }
-
-    // Flash the panel when the pipeline step changes.
-    if (state.lastSongStatus !== null && raw !== state.lastSongStatus) {
-      flash(el.sunoPanel, "flash", SONG_FLASH_MS, "songFlashTimer");
-    }
-    state.lastSongStatus = raw;
   }
 
   // --- Top-level state render (update DOM in place, no full rebuild) ---

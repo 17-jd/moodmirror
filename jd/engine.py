@@ -370,18 +370,20 @@ class JDEngine:
             if self._suno is None:
                 self._set_song_status("error: no Suno API key")
                 return normalized
-            # Kick a one-shot song generation (guarded against overlap).
-            if not self._song_inflight.is_set():
-                t = threading.Thread(
-                    target=self._make_song, name="suno-song", daemon=True
-                )
-                self._song_thread = t
-                t.start()
+            self._start_song()  # kick a one-shot generation (guarded against overlap)
         else:  # "local": stop any Suno song so the live stream resumes.
             self._music.skip_external()
             self._set_song_status("")
 
         return normalized
+
+    def _start_song(self) -> None:
+        """Spawn a one-shot Suno generation thread (no-op if one is in flight)."""
+        if self._suno is None or self._song_inflight.is_set():
+            return
+        t = threading.Thread(target=self._make_song, name="suno-song", daemon=True)
+        self._song_thread = t
+        t.start()
 
     def stop_song(self) -> None:
         """Stop the current Suno song (if any) and clear the song status."""
@@ -684,6 +686,12 @@ class JDEngine:
             with self._lock:
                 self._phase = "streaming"
                 self._observe_deadline = 0.0
+                mode = self._mode
+            # 6. If we started in SUNO mode, auto-generate the full song now (the
+            # local stream from step 4 plays as a BRIDGE during generation, then the
+            # song auto-plays + the dashboard shows "Ready"). No dead silence.
+            if mode == "suno" and config.SUNO_AUTOSTART and self._suno is not None:
+                self._start_song()
         except Exception:  # noqa: BLE001 — never let the flow kill the engine
             logger.exception("observe→direct flow failed (%s)", reason)
             with self._lock:
@@ -838,6 +846,7 @@ class JDEngine:
                 self._mode != "local"
                 or self._phase != "streaming"
                 or self._music.playing_external
+                or not self._latest.face_present  # ignore bogus emotion on no-face frames
                 or mood3 == self._mood3_applied
             ):
                 return

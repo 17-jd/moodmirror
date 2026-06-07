@@ -134,7 +134,7 @@ class GestureWorker:
         """0..1 pose change magnitude vs the previous sample."""
         if not self._hist:
             return 0.0
-        _, py, pp, pr, _ = self._hist[-1]
+        _, py, pp, pr, _, _ = self._hist[-1]  # (ts, yaw, pitch, roll, gaze, blink)
         delta = abs(yaw - py) + abs(pitch - pp) + abs(roll - pr)
         return float(min(1.0, delta / _MOTION_NORM_DEG))
 
