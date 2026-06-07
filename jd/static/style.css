@@ -733,6 +733,80 @@ button:focus-visible { outline-offset: 3px; }
   gap: 8px;
 }
 
+/* ===== Realtime input toggle (face + gestures on/off) ===== */
+.realtime-input {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(34, 211, 238, 0.07);
+  border: 1px solid rgba(34, 211, 238, 0.22);
+}
+.realtime-input-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.realtime-input-label {
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--fg);
+}
+.realtime-input-sub { color: var(--muted); font-weight: 600; }
+.realtime-toggle {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 9px;
+  font-family: inherit;
+  background: transparent;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+}
+.realtime-toggle-track {
+  position: relative;
+  width: 46px; height: 24px;
+  border-radius: 99px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  transition: background .2s ease, border-color .2s ease;
+}
+.realtime-toggle-thumb {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 18px; height: 18px;
+  border-radius: 99px;
+  background: var(--dim);
+  transition: transform .2s ease, background .2s ease;
+}
+.realtime-toggle-state {
+  font-size: 0.68rem; font-weight: 800; letter-spacing: 0.08em;
+  color: var(--dim); min-width: 26px; text-align: left;
+  transition: color .2s ease;
+}
+.realtime-toggle[aria-checked="true"] .realtime-toggle-track {
+  background: linear-gradient(120deg, rgba(34, 211, 238, 0.55), rgba(54, 211, 153, 0.55));
+  border-color: rgba(34, 211, 238, 0.6);
+}
+.realtime-toggle[aria-checked="true"] .realtime-toggle-thumb {
+  transform: translateX(22px);
+  background: #06141a;
+}
+.realtime-toggle[aria-checked="true"] .realtime-toggle-state { color: var(--cyan); }
+.realtime-toggle:focus-visible { outline: 2px solid var(--accent2); outline-offset: 3px; border-radius: 8px; }
+.realtime-input-caption {
+  font-size: 0.7rem; color: var(--muted);
+  transition: color .2s ease;
+}
+.realtime-input-caption.off { color: var(--violet); font-weight: 700; }
+
+/* When realtime input is OFF, dim the face/gesture panels (they won't update). */
+.realtime-off .gesture-box,
+.realtime-off .cam-strip {
+  opacity: 0.45;
+  filter: saturate(0.6);
+  transition: opacity .3s ease, filter .3s ease;
+}
+
 /* ===== Gemini model select ===== */
 .gemini-model {
   display: flex;

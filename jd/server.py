@@ -256,4 +256,25 @@ def create_app(engine: JDEngine) -> FastAPI:
             logger.exception("engine.stop_song() failed")
             return {"ok": False, "detail": str(exc)[:140]}
 
+    @app.post("/api/realtime-input")
+    async def set_realtime_input(request: Request) -> dict:
+        """Toggle the realtime face/emotion/gesture detectors on/off.
+
+        Body `{"on": true|false}` (or `?on=true`). OFF → detectors idle (CPU freed)
+        and Gemini drives the music. Errors surface in the body at HTTP 200.
+        """
+        try:
+            try:
+                body = await request.json()
+            except Exception:  # noqa: BLE001
+                body = {}
+            raw = body.get("on") if isinstance(body, dict) else None
+            if raw is None:
+                raw = request.query_params.get("on", "true")
+            on = str(raw).strip().lower() not in ("false", "0", "no", "off", "")
+            return {"ok": True, "on": engine.set_realtime_input(on)}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("engine.set_realtime_input() failed")
+            return {"ok": False, "detail": str(exc)[:140]}
+
     return app

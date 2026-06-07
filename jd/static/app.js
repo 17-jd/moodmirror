@@ -104,6 +104,9 @@
     geminiIntervalSlider: document.getElementById("geminiIntervalSlider"),
     geminiIntervalValue: document.getElementById("geminiIntervalValue"),
     geminiModelSelect: document.getElementById("geminiModelSelect"),
+    realtimeToggle: document.getElementById("realtimeToggle"),
+    realtimeState: document.getElementById("realtimeState"),
+    realtimeCaption: document.getElementById("realtimeCaption"),
     modeSwitch: document.getElementById("modeSwitch"),
     modeLocalBtn: document.getElementById("modeLocalBtn"),
     modeSunoBtn: document.getElementById("modeSunoBtn"),
@@ -163,7 +166,10 @@
     lastReady: false,          // was the song "ready" on the previous poll
     readyFlashTimer: null,
     generatingSong: false,     // guard double-click on Generate song
-    generateTimer: null        // re-enables the Generate button after a beat
+    generateTimer: null,       // re-enables the Generate button after a beat
+    realtimeInput: null,       // last-rendered realtime_input value
+    pendingRealtime: null,     // optimistic value while a POST is in flight
+    togglingRealtime: false    // guard double-click on the realtime toggle
   };
 
   // --- Formatting helpers ---
@@ -710,8 +716,68 @@
     }
   }
 
+  // --- Realtime input toggle (face/gesture detectors on/off) ---
+  function setRealtimeVisual(on) {
+    if (el.realtimeToggle) el.realtimeToggle.setAttribute("aria-checked", on ? "true" : "false");
+    if (el.realtimeState) el.realtimeState.textContent = on ? "ON" : "OFF";
+    if (el.realtimeCaption) {
+      el.realtimeCaption.textContent = on
+        ? "Your face & gestures drive the music."
+        : "Gemini is driving the music.";
+      el.realtimeCaption.classList.toggle("off", !on);
+    }
+    // Dim the face/gesture panels when detectors are off (kept in the DOM).
+    document.body.classList.toggle("realtime-off", !on);
+  }
+
+  function renderRealtimeInput(s) {
+    if (!el.realtimeToggle) return;
+    // Server defaults to ON if the field is absent.
+    var serverOn = (typeof s.realtime_input === "boolean") ? s.realtime_input : true;
+    // Optimistic: prefer pending value, else server truth.
+    var shown = (state.pendingRealtime !== null) ? state.pendingRealtime : serverOn;
+    // Once the server agrees with our optimistic choice, clear the pending flag.
+    if (state.pendingRealtime !== null && serverOn === state.pendingRealtime) {
+      state.pendingRealtime = null;
+      state.togglingRealtime = false;
+    }
+    setRealtimeVisual(shown);
+    state.realtimeInput = shown;
+  }
+
+  function postRealtimeInput(on) {
+    try {
+      fetch("/api/realtime-input", {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ on: on })
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { /* swallow; state poll reflects truth */ })
+        .finally(function () { state.togglingRealtime = false; });
+    } catch (e) {
+      state.togglingRealtime = false; // never throw from a UI handler
+    }
+  }
+
+  function toggleRealtimeInput() {
+    if (state.togglingRealtime) return; // guard double-click
+    var next = !(state.realtimeInput === null ? true : state.realtimeInput);
+    state.togglingRealtime = true;
+    state.pendingRealtime = next;
+    setRealtimeVisual(next);          // optimistic flip
+    state.realtimeInput = next;
+    postRealtimeInput(next);
+  }
+
+  if (el.realtimeToggle) {
+    el.realtimeToggle.addEventListener("click", toggleRealtimeInput);
+  }
+
   // --- Top-level state render (update DOM in place, no full rebuild) ---
   function renderState(s) {
+    renderRealtimeInput(s);
     renderMode(s);
     renderSuno(s);
     renderPhase(s);

@@ -155,6 +155,10 @@ class JDEngine:
         self._mood3_applied: str = ""  # last 3-class mood whose music we set
         self._mood3_pending: str = ""  # candidate mood awaiting debounce
         self._mood3_pending_since: float = 0.0  # when the candidate first appeared
+        # Realtime Python input (face/emotion/gesture detectors). When OFF, those
+        # heavy loops idle (freeing CPU for the music model) and GEMINI's read drives
+        # the music instead. Toggleable live from the dashboard.
+        self._realtime_input: bool = (config.LOCAL_DRIVER == "emotion")
         self._df_happy: float = 0.0  # latest DeepFace happy probability
         self._situation: str = ""  # latest Gemini situational read (continuous loop)
         # User-adjustable cadence for the continuous Gemini director loop. Seeded
@@ -382,6 +386,25 @@ class JDEngine:
 
         return normalized
 
+    def set_realtime_input(self, on: bool) -> bool:
+        """Toggle the realtime Python detectors (face/emotion/gesture).
+
+        ON  → detectors run and DRIVE the local music (emotion + gestures).
+        OFF → detector loops idle (CPU freed for the music model) and GEMINI's
+              continuous read drives the music instead. Returns the new state.
+        """
+        with self._lock:
+            self._realtime_input = bool(on)
+            # Reset mood debounce so a stale candidate doesn't fire on re-enable.
+            self._mood3_pending = ""
+            self._mood3_applied = ""
+        self._emit(NarrationEvent(
+            ts=time.time(), kind="gemini",
+            text="Realtime face/gesture input ON — you drive the music."
+            if on else "Realtime input OFF — Gemini's read drives the music.",
+        ))
+        return bool(on)
+
     def _start_song(self) -> None:
         """Spawn a one-shot Suno generation thread (no-op if one is in flight)."""
         if self._suno is None or self._song_inflight.is_set():
@@ -574,6 +597,7 @@ class JDEngine:
             mode = self._mode
             song_status = self._song_status
             mood3 = self._mood3
+            realtime_input = self._realtime_input
 
         observe_remaining = (
             round(max(0.0, deadline - time.monotonic()), 1)
@@ -624,6 +648,7 @@ class JDEngine:
             "gemini_model": gemini_model,
             "gemini_models": gemini_models,
             "mode": mode,
+            "realtime_input": realtime_input,
             "local_model_name": config.LOCAL_MODEL_NAME,
             "suno_available": self._suno is not None,
             "song_status": song_status,
@@ -891,6 +916,10 @@ class JDEngine:
         if not self._emotion_available:
             return
         while not self._stop.is_set():
+            if not self._realtime_input:  # detectors OFF → idle, free CPU for the model
+                if self._stop.wait(0.5):
+                    return
+                continue
             with self._lock:
                 frame = None if self._latest_frame is None else self._latest_frame.copy()
             if frame is not None:
@@ -914,7 +943,7 @@ class JDEngine:
         Smooth (flush=False) so it never stutters; only when the mood bucket
         actually changes, while streaming local music and no Suno song is playing.
         """
-        if config.LOCAL_DRIVER != "emotion":
+        if not self._realtime_input:
             return
         now = time.monotonic()
         with self._lock:
@@ -951,6 +980,10 @@ class JDEngine:
         if not self._gesture_available:
             return
         while not self._stop.is_set():
+            if not self._realtime_input:  # detectors OFF → idle, free CPU for the model
+                if self._stop.wait(0.5):
+                    return
+                continue
             with self._lock:
                 frame = None if self._latest_frame is None else self._latest_frame.copy()
             if frame is not None:
@@ -1097,7 +1130,9 @@ class JDEngine:
                 # left/right turns own the music, so Gemini just narrates.
                 with self._lock:
                     self._situation = situation
-                if config.LOCAL_DRIVER == "gemini":
+                # When realtime input is OFF, GEMINI drives the music; otherwise the
+                # local detectors own it and Gemini just narrates the live read.
+                if not self._realtime_input:
                     self._music.set_style(style, flush=False)  # smooth crossfade
                     with self._lock:
                         self._sound_source = "gemini"

@@ -212,6 +212,23 @@
             <span class="directive-source" id="directiveSource">&mdash;</span>
           </div>
           <div class="gemini-controls" role="group" aria-label="Gemini controls">
+            <div class="realtime-input">
+              <div class="realtime-input-row">
+                <span class="realtime-input-label" id="realtimeLabel">Realtime input <span class="realtime-input-sub">(face + gestures)</span></span>
+                <button
+                  type="button"
+                  class="realtime-toggle"
+                  id="realtimeToggle"
+                  role="switch"
+                  aria-checked="true"
+                  aria-labelledby="realtimeLabel"
+                >
+                  <span class="realtime-toggle-track" aria-hidden="true"><span class="realtime-toggle-thumb"></span></span>
+                  <span class="realtime-toggle-state" id="realtimeState">ON</span>
+                </button>
+              </div>
+              <p class="realtime-input-caption" id="realtimeCaption">Your face &amp; gestures drive the music.</p>
+            </div>
             <div class="gemini-interval">
               <label class="gemini-interval-label" for="geminiIntervalSlider">Gemini reads every</label>
               <input
